@@ -20,6 +20,7 @@ from copy import copy
 import re
 import sys
 import traceback
+import math
 
 class SODE:
   def __init__(self, text):
@@ -53,6 +54,9 @@ class SODE:
         raise sodeError, "Error parsing following expression:\n`%s = %s`\n%s"%(p, self.rhs[p], err.message)
 
     self.f={}
+    # add various math functions to the namespace of the expression for the equation RHS
+    nmsps = dict(math.__dict__.items() + self.parval.items())
+    
     for v in self.dvar:
       s=self.drhs[v]
       i=0
@@ -63,7 +67,7 @@ class SODE:
 #      print v, s
       if not v in self.rhs.keys(): raise sodeError, "Initial value of `%s` is undefined"%v
       try:
-        self.f[v]=eval("lambda x,t: %s"%s, self.parval)
+        self.f[v]=eval("lambda x,t: %s"%s, nmsps)
         tmp=self.f[v](np.zeros(len(self.dvar)),0) # make a test call to a function to workaround odeint() behavior, which doesn't raise exceptions on errors.
       except StandardError as err:
         raise sodeError, "Error parsing following expression:\n`%s' = %s`\n%s"%(v, self.drhs[v], err.message)
