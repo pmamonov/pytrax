@@ -25,10 +25,13 @@ import math
 class SODE:
   def __init__(self, text):
     self.var=[]
+    self.var1=[]
     self.dvar=[]
     self.rhs={}
     self.drhs={}
     self.t=np.array([])
+    self.kin={}
+    self.kin1={}
 
     for s in text.split('\n'):
       if '=' in s:
@@ -42,9 +45,17 @@ class SODE:
           self.rhs[v]=rhs
         if not v in self.var: self.var.append(v)
 
+    for v in self.var:
+      rhv = re.sub("[-+/*()]"," ",self.rhs[v]).split()
+      for v1 in rhv:
+        if v1 in self.dvar+['t']:
+          self.var1.append(v)
+          break
+
     self.par=[]
     for v in self.var:
-      if not v in self.dvar: self.par.append(v)
+      if not v in (self.dvar+self.var1): self.par.append(v)
+
 
     self.parval={}
     for p in self.par:
@@ -134,6 +145,14 @@ class SODE:
     print " after %d iterations"%iref
     self.t = t
     self.tracks = x
+    i=0
+    for v in self.dvar: 
+      self.kin[v] = self.tracks[:,i]
+      i+=1
+    for v in self.var1:
+      self.kin[v] = eval(self.rhs[v],dict(self.kin.items()+self.parval.items() + [('t',self.t)]))
+    self.dvar = self.dvar+self.var1 # TODO: NOT SAFE! second call to integrate() will fail.
+      
 
   def discrete(self):
     if len(self.dvar)==0: raise sodeError, "No equations defined."
@@ -148,9 +167,7 @@ class SODE:
   def __getitem__(self, n):
     if n=='t': return copy(self.t)
     else:
-      for i in xrange(len(self.dvar)):
-        if self.dvar[i] == n:
-          return self.tracks[:,i]
+      if n in self.dvar: return self.kin[n]
       raise KeyError
 
 class sodeError(StandardError):
