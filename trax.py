@@ -145,6 +145,9 @@ class SODE:
     print " after %d iterations"%iref
     self.t = t
     self.tracks = x
+    self.tracks2dict()
+
+  def tracks2dict(self):
     i=0
     for v in self.dvar: 
       self.kin[v] = self.tracks[:,i]
@@ -163,6 +166,7 @@ class SODE:
     dx = self.getdx()
     for i in self.t[1:]:
       self.tracks[i,:] = dx(self.tracks[i-1,:], i)
+    self.tracks2dict()
 
   def __getitem__(self, n):
     if n=='t': return copy(self.t)
