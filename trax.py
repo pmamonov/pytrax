@@ -60,7 +60,7 @@ class SODE:
     self.parval={}
     for p in self.par:
       try:
-        self.parval[p] = eval(self.rhs[p], self.parval)
+        self.parval[p] = eval(self.rhs[p], dict(math.__dict__.items() + self.parval.items()))
       except StandardError as err:
         raise sodeError, "Error parsing following expression:\n`%s = %s`\n%s"%(p, self.rhs[p], err.message)
 
