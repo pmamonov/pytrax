@@ -79,9 +79,14 @@ class SODE:
       if not v in self.rhs.keys(): raise sodeError, "Initial value of `%s` is undefined"%v
       try:
         self.f[v]=eval("lambda x,t: %s"%s, nmsps)
-        tmp=self.f[v](np.zeros(len(self.dvar)),0) # make a test call to a function to workaround odeint() behavior, which doesn't raise exceptions on errors.
       except StandardError as err:
         raise sodeError, "Error parsing following expression:\n`%s' = %s`\n%s"%(v, self.drhs[v], err.message)
+    for v in self.dvar:
+      try:
+        # make a test call to a function to workaround odeint() behavior, which doesn't raise exceptions on errors.
+        tmp=self.f[v](map(lambda v: eval(self.rhs[v], dict(math.__dict__.items() + self.parval.items())), self.dvar),0)
+      except Exception as err:
+        raise sodeError, "Error evaluating the following expression:\n `%s' = %s`\n%s"%(v, self.drhs[v], str(err))
 
   def getdx(self):
     if self.parval['t']<0: sig=-1
@@ -97,7 +102,7 @@ class SODE:
     t = np.linspace(0,self.parval['t'], 10) # initial 
     t.sort() # sort in case t value was negative
     dx = self.getdx()
-    parvals = map(lambda v: eval(self.rhs[v], self.parval), self.dvar)
+    parvals = map(lambda v: eval(self.rhs[v], dict(math.__dict__.items() + self.parval.items())), self.dvar)
     x = odeint(dx, parvals, t,atol=atol,rtol=rtol) # integrate ODEs
     if np.isnan(x).sum(): raise NameError, "Integration failed" # check for NANs in output
     D0 = 0 # curve length from previous iteration
