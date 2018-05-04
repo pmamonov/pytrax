@@ -2,6 +2,10 @@
 # TRAX (c) 2012, Lomonosov Moscow State University
 # http://erg.biophys.msu.ru/wordpress/archives/330
 
+banner = """# Examples: https://github.com/pmamonov/pytrax/tree/master/examples
+# Bug reports: https://github.com/pmamonov/pytrax/issues
+"""
+
 import matplotlib
 matplotlib.use('TkAgg')
 
@@ -246,6 +250,7 @@ class Trax_GUI:
 
     # Equations input 
     self.txt=Text(fr_eq, width=80, height=7)
+    self.txt.insert(1.0, banner)
     self.txt.pack(side=LEFT)
     self.txt.bind("<<Modified>>", self.alert_eq_mod)
     self.rst_mod_flg=False
