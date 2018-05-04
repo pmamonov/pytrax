@@ -34,6 +34,14 @@ class SODE:
     self.kin1={}
 
     for s in text.split('\n'):
+      _s = s.strip()
+      if not len(_s):
+        continue
+
+      # skip comments
+      if _s[0] == '#':
+        continue
+
       if '=' in s:
         lhs,rhs=map(lambda s: s.replace(' ',''), s.split('='))
         if lhs[-1]=="'":
