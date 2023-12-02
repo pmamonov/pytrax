@@ -2,5 +2,5 @@ This small program named TRAX is capable of solving systems of ordinary
 differential equations and plotting the solution on a phase plane as well as 
 function of time. The program is intended for educational purposes.
 The program runs on any Python-enabled platform, including GNU/Linux and 
-MS\Windows OSs. To run the program you will need a python interpreter ver. 2.x 
+MS\Windows OSs. To run the program you will need a python interpreter ver. 3.x 
 and compatible versions of numpy, scipy and matplotlib libraries.

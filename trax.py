@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 # TRAX (c) 2012, Lomonosov Moscow State University
 # http://erg.biophys.msu.ru/wordpress/archives/330
 
@@ -9,13 +9,14 @@ banner = """# Examples: https://github.com/pmamonov/pytrax/tree/master/examples
 import matplotlib
 matplotlib.use('TkAgg')
 
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from matplotlib.colors import rgb2hex,colorConverter
 
-from Tkinter import *
-import tkMessageBox, tkSimpleDialog, tkFont
-from tkFileDialog import askopenfilename, asksaveasfilename
+from tkinter import *
+from tkinter import filedialog, messagebox, simpledialog
+import tkinter.font as tkFont
+from tkinter.filedialog import askopenfilename, asksaveasfilename
 
 import numpy as np
 from scipy.integrate import odeint
@@ -25,6 +26,9 @@ import re
 import sys
 import traceback
 import math
+
+class sodeError(Exception):
+  pass
 
 class SODE:
   def __init__(self, text):
@@ -72,14 +76,14 @@ class SODE:
     self.parval={}
     for p in self.par:
       try:
-        self.parval[p] = eval(self.rhs[p], dict(math.__dict__.items() + self.parval.items()))
-      except StandardError as err:
-        raise sodeError, "Error parsing following expression:\n`%s = %s`\n%s"%(p, self.rhs[p], err.message)
+        self.parval[p] = eval(self.rhs[p], {**math.__dict__, **self.parval})
+      except Exception as err:
+        raise sodeError("Error parsing following expression:\n`%s = %s`\n%s"%(p, self.rhs[p], str(err)))
 
     self.f={}
     # add various math functions to the namespace of the expression for the equation RHS
-    nmsps = dict(math.__dict__.items() + self.parval.items())
-    
+    nmsps = {**math.__dict__, **self.parval}
+
     for v in self.dvar:
       s=self.drhs[v]
       i=0
@@ -88,56 +92,55 @@ class SODE:
         while nsub: s,nsub=re.subn("(^|[-+*/(])%s([-+*/)]|$)" % _v, "\\1x[%d]\\2" % i, s)
         i+=1
 #      print v, s
-      if not v in self.rhs.keys(): raise sodeError, "Initial value of `%s` is undefined"%v
+      if not v in self.rhs.keys(): raise sodeError("Initial value of `%s` is undefined"%v)
       try:
         self.f[v]=eval("lambda x,t: %s"%s, nmsps)
-      except StandardError as err:
-        raise sodeError, "Error parsing following expression:\n`%s' = %s`\n%s"%(v, self.drhs[v], err.message)
+      except Exception as err:
+        raise sodeError("Error parsing following expression:\n`%s' = %s`\n%s"%(v, self.drhs[v], str(err)))
     for v in self.dvar:
       try:
         # make a test call to a function to workaround odeint() behavior, which doesn't raise exceptions on errors.
-        tmp=self.f[v](map(lambda v: eval(self.rhs[v], dict(math.__dict__.items() + self.parval.items())), self.dvar),0)
+        tmp=self.f[v]([eval(self.rhs[v], {**math.__dict__, **self.parval}) for v in self.dvar],0)
       except Exception as err:
-        raise sodeError, "Error evaluating the following expression:\n `%s' = %s`\n%s"%(v, self.drhs[v], str(err))
+        raise sodeError("Error evaluating the following expression:\n `%s' = %s`\n%s"%(v, self.drhs[v], str(err)))
 
   def getdx(self):
     if self.parval['t']<0: sig=-1
     else: sig = 1
-    return lambda _x,_t: sig*np.array(map(lambda v,x=_x,t=_t: self.f[v](x,t), self.dvar))
+    return lambda _x,_t: sig*np.array([self.f[v](_x,_t) for v in self.dvar])
 
   def integrate(self):
     atol=1.49012e-8
     rtol=1.49012e-8
-    if len(self.dvar)==0: raise sodeError, "No equations defined."
-    if 't' not in self.parval.keys(): raise sodeError, "Integration time limit 't' is undefined."
-    #TODO: implement adaptive grid
-    t = np.linspace(0,self.parval['t'], 10) # initial 
-    t.sort() # sort in case t value was negative
+    if len(self.dvar)==0: raise sodeError("No equations defined.")
+    if 't' not in self.parval.keys(): raise sodeError("Integration time limit 't' is undefined.")
+    # TODO: implement adaptive grid
+    t = np.linspace(0,self.parval['t'], 10).copy()
+    t.sort()
     dx = self.getdx()
-    parvals = map(lambda v: eval(self.rhs[v], dict(math.__dict__.items() + self.parval.items())), self.dvar)
-    x = odeint(dx, parvals, t,atol=atol,rtol=rtol) # integrate ODEs
-    if np.isnan(x).sum(): raise NameError, "Integration failed" # check for NANs in output
-    D0 = 0 # curve length from previous iteration
-    refine = True # flag to refine grid
+    parvals = [eval(self.rhs[v], {**math.__dict__, **self.parval}) for v in self.dvar]
+    x = odeint(dx, parvals, t,atol=atol,rtol=rtol)
+    if np.isnan(x).sum(): raise NameError("Integration failed")
+    D0 = 0
+    refine = True
     npadd = 2
-    print "\n\nStart grid refinement"
-    iref=0 # iteration counter
-    while t.shape[0]<10000 and refine: # limit number of grid points
+    print("\n\nStart grid refinement")
+    iref=0
+    while t.shape[0]<10000 and refine:
       iref += 1
-      ds = map(lambda i: np.linalg.norm(x[i+1,:] - x[i,:]), range(x.shape[0]-1)) # curve segments lengths
-      D = sum(ds) # curve length
-      if (D == 0): break # stationary point?
-      dmax = max(ds) # max segment length
+      ds = [np.linalg.norm(x[i+1,:] - x[i,:]) for i in range(x.shape[0]-1)]
+      D = sum(ds)
+      if (D == 0): break
+      dmax = max(ds)
 #      C = x.mean(0) # curve center
 #      rs = map(lambda i: np.linalg.norm(x[i,:] - C), range(x.shape[0])) # curve points distance from center
 #      S = max(rs) # curve radius
-      print "\nGrid points count: %d"%t.shape[0]
-      print "Track length: %f"%D
-      print "Track length change: %.1f%%"%((1-D0/D)*100)
-      print "Max segment length: %f"%max(ds)
-#      print "Track size: %f"%S
+      print("\nGrid points count: %d"%t.shape[0])
+      print("Track length: %f"%D)
+      print("Track length change: %.1f%%"%((1-D0/D)*100))
+      print("Max segment length: %f"%max(ds))
       refine = False
-      for i in xrange(0,t.shape[0]-1):
+      for i in range(0,t.shape[0]-1):
         a=x[i+1,:]-x[i,:]
         b=dx(x[i,:], t[i])*(t[i+1]-t[i])
         d = np.linalg.norm(a-b)/np.linalg.norm(a)
@@ -156,10 +159,10 @@ class SODE:
       D0 = D
       t.sort()
       x = odeint(dx, parvals, t, atol=atol,rtol=rtol)
-      print "New grid points count: %d"%t.shape[0]
-    if not refine: print "Grid is fine",
-    else: print "Grid points limit reached",
-    print " after %d iterations"%iref
+      print("New grid points count: %d"%t.shape[0])
+    if not refine: print("Grid is fine", end=' ')
+    else: print("Grid points limit reached", end=' ')
+    print(" after %d iterations"%iref)
     self.t = t
     self.tracks = x
     self.tracks2dict()
@@ -170,16 +173,15 @@ class SODE:
       self.kin[v] = self.tracks[:,i]
       i+=1
     for v in self.var1:
-      self.kin[v] = eval(self.rhs[v],dict(self.kin.items()+self.parval.items() + [('t',self.t)]))
-    self.dvar = self.dvar+self.var1 # TODO: NOT SAFE! second call to integrate() will fail.
-      
+      self.kin[v] = eval(self.rhs[v],{**self.kin, **self.parval, **{'t':self.t}})
+    self.dvar = self.dvar+self.var1
 
   def discrete(self):
-    if len(self.dvar)==0: raise sodeError, "No equations defined."
-    if 't' not in self.parval.keys(): raise sodeError, "Integration time limit 't' is undefined."
+    if len(self.dvar)==0: raise sodeError("No equations defined.")
+    if 't' not in self.parval.keys(): raise sodeError("Integration time limit 't' is undefined.")
     self.t=np.arange(self.parval['t'])
     self.tracks = np.zeros((self.t.shape[0], len(self.dvar)))
-    self.tracks[0,:] = map(lambda v: eval(self.rhs[v], self.parval), self.dvar)
+    self.tracks[0,:] = [eval(self.rhs[v], self.parval) for v in self.dvar]
     dx = self.getdx()
     for i in self.t[1:]:
       self.tracks[i,:] = dx(self.tracks[i-1,:], i)
@@ -190,9 +192,6 @@ class SODE:
     else:
       if n in self.dvar: return self.kin[n]
       raise KeyError
-
-class sodeError(StandardError):
-  pass
 
 class Trax_GUI:
   def __init__(self, master):
@@ -234,9 +233,9 @@ class Trax_GUI:
     fr_fig1.pack(side=LEFT)
     self.f = Figure(figsize=(5.5,(self.height-self.min_height+2*self.line_height)/100.), dpi=100)
     canvas = FigureCanvasTkAgg(self.f, master=fr_fig1)
-    canvas.show()
+    canvas.draw()
     # Figure toolbar
-    toolbar = NavigationToolbar2TkAgg(canvas, fr_fig1)
+    toolbar = NavigationToolbar2Tk(canvas, fr_fig1)
     toolbar.update()
     canvas.get_tk_widget().pack(side=LEFT)
     self.ax = self.f.add_subplot(111)
@@ -311,7 +310,7 @@ class Trax_GUI:
     self.but_run['bg']="yellow"
 
   def quit(self):
-    if tkMessageBox.askyesno("Quit", "Really?"): self.master.quit()
+    if messagebox.askyesno("Quit", "Really?"): self.master.quit()
 
   def cauchy(self):
     # parse and solve newly defined SODE
@@ -319,18 +318,18 @@ class Trax_GUI:
       self.sode=SODE(self.txt.get(1.0,END))
       if self.discrete.get(): self.sode.discrete()
       else: self.sode.integrate()
-      
+
     except sodeError as err:
-      tkMessageBox.showerror("ERROR", err.message)
-    except StandardError as err:
-      tkMessageBox.showerror("ERROR", "An error occured while parsing your input:\n%s\n--\nException arguments:\n %s\n%s"%(err.message, str(err.args), traceback.format_exc()))
+      messagebox.showerror("ERROR", err)
+    except Exception as err:
+      messagebox.showerror("ERROR", "An error occured while parsing your input:\n%s\n--\nException arguments:\n %s\n%s"%(err, str(err.args), traceback.format_exc()))
     else:
       # update figures data
       for f in self.figlist:
         f.sode=self.sode
         # update list of variables in current control frame
         if f.active: f.activate() 
-      self.but_run["bg"]="green" # make "RUN" button green
+      self.but_run["bg"]="green"
 
   def start_get_init_vals(self):
     if not self.do_get_init_vals:
@@ -339,7 +338,6 @@ class Trax_GUI:
     else:
       self.do_get_init_vals=False
       self.but_get_init_vals['bg']="grey"
-
 
   def get_init_vals(self, event):
     if self.do_get_init_vals:
@@ -352,9 +350,8 @@ class Trax_GUI:
         self.cauchy()
         f.add_curve(f.curves[-1].x,f.curves[-1].y)
 
-
   def load(self):
-    fn=askopenfilename()
+    fn=filedialog.askopenfilename()
     if fn:
       f=open(fn)
       self.txt.delete(1.0, END)
@@ -362,12 +359,11 @@ class Trax_GUI:
       f.close()
 
   def save(self):
-    fn=asksaveasfilename()
+    fn=filedialog.asksaveasfilename()
     if fn:
       f=open(fn, 'w')
-      print >>f, self.txt.get(1.0, END)
+      print(self.txt.get(1.0, END), file=f)
       f.close()
-
 
 class Fig:
   def __init__(self, button, trax):
@@ -399,7 +395,7 @@ class Fig:
       else:
         self.apply_lim[event.widget.lim_id]=0
 #        print "disable lim %d"%event.widget.lim_id
-  
+
 
   def add_curve(self,x,y):
     self.x,self.y=x,y
@@ -408,7 +404,7 @@ class Fig:
 
   def activate(self):
     # bind events from limits entries to own methods
-    for i in xrange(4):
+    for i in range(4):
       self.en_lim[i].bind("<FocusOut>", self.test_lim)
     # highlight own window button
     self.active=True
@@ -427,9 +423,9 @@ class Fig:
     f.pack(side=TOP)
     if not self.x in self.sode.dvar: self.x='t' 
     if not self.y in self.sode.dvar: self.y='t' 
-    v1=Variable()
+    v1=StringVar()
     v1.set(self.y)
-    v2=Variable()
+    v2=StringVar()
     v2.set(self.x)
     OptionMenu(f, v1, 't',*self.sode.dvar).pack(side=LEFT)
     Label(f, text=" (").pack(side=LEFT)
@@ -456,7 +452,7 @@ class Fig:
     for c in self.curves:
       c.show()
     # restore axes limits
-    for i in xrange(4):
+    for i in range(4):
       self.en_lim[i].delete(0,END)
       if self.apply_lim[i]:
         self.en_lim[i].insert(0, "%f"%self.lim[i])
@@ -467,7 +463,7 @@ class Fig:
     # if there are other figures
     if len(self.fl)>1:
     # remove own window button
-      for i in xrange(len(self.fl)):
+      for i in range(len(self.fl)):
         if self.fl[i] is self:
           del self.fl[i]
           if i: self.fl[i-1].activate()
@@ -482,7 +478,7 @@ class Fig:
     lim=[0,0,0,0]
     lim[:2] = self.ax.get_xlim()
     lim[2:] = self.ax.get_ylim()
-    for i in xrange(4):
+    for i in range(4):
       if self.apply_lim[i]:
         lim[i]=self.lim[i]
     self.ax.set_xlim(lim[:2])
@@ -519,7 +515,7 @@ class Curve:
 #    self.ax.legend()
     self.fig.ax.figure.canvas.draw()
     i=0
-    for i in xrange(len(self.fig.curves)):
+    for i in range(len(self.fig.curves)):
       if self.fig.curves[i] is self:
         del self.fig.curves[i]
         break
